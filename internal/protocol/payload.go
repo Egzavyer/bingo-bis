@@ -1,0 +1,151 @@
+package protocol
+
+// This file contains the typed payload struct for every EventKind and
+// CommandKind. The hub and debugger always work with these concrete types;
+// json.RawMessage only appears at the WebSocket boundary.
+//
+// Naming convention:
+//   <Kind>Payload  — for both events and commands, e.g. BreakpointHitPayload.
+
+// ─── Shared sub-types ────────────────────────────────────────────────────────
+
+// Location is a source position.
+type Location struct {
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Function string `json:"function,omitempty"`
+}
+
+// Breakpoint is a resolved breakpoint as reported by the debugger.
+type Breakpoint struct {
+	ID       int      `json:"id"`
+	Location Location `json:"location"`
+	Enabled  bool     `json:"enabled"`
+}
+
+// Variable is a local variable or function argument.
+type Variable struct {
+	Name    string `json:"name"`
+	Value   string `json:"value"`
+	Type    string `json:"type"`
+	Address uint64 `json:"address,omitempty"`
+}
+
+// Frame is a single entry in the call stack.
+type Frame struct {
+	Index    int      `json:"index"`
+	Location Location `json:"location"`
+	// Locals are only populated when the client requests frame-level locals.
+	Locals []Variable `json:"locals,omitempty"`
+}
+
+// Goroutine is a snapshot of a running goroutine.
+type Goroutine struct {
+	ID         int      `json:"id"`
+	Status     string   `json:"status"` // "running", "waiting", "syscall", "dead"
+	CurrentLoc Location `json:"currentLoc"`
+	GoLoc      Location `json:"goLoc"` // where the goroutine was spawned
+	WaitReason string   `json:"waitReason,omitempty"`
+}
+
+// ─── Event payloads ──────────────────────────────────────────────────────────
+
+// BreakpointHitPayload is sent when a breakpoint is hit.
+// The process is suspended until the hub receives a resumption command.
+type BreakpointHitPayload struct {
+	Breakpoint Breakpoint `json:"breakpoint"`
+	Goroutine  Goroutine  `json:"goroutine"`
+	Frames     []Frame    `json:"frames"`
+}
+
+// PanicPayload is sent when the runtime panic handler is triggered.
+type PanicPayload struct {
+	Message   string    `json:"message"`
+	Goroutine Goroutine `json:"goroutine"`
+	Frames    []Frame   `json:"frames"`
+}
+
+// OutputPayload carries a line of stdout/stderr from the target process.
+type OutputPayload struct {
+	Stream  string `json:"stream"` // "stdout" | "stderr"
+	Content string `json:"content"`
+}
+
+// ProcessExitedPayload is sent when the target process exits.
+type ProcessExitedPayload struct {
+	ExitCode int    `json:"exitCode"`
+	Reason   string `json:"reason,omitempty"` // e.g. "killed", "exited"
+}
+
+// BreakpointSetPayload confirms a breakpoint was set.
+type BreakpointSetPayload struct {
+	Breakpoint Breakpoint `json:"breakpoint"`
+}
+
+// BreakpointClearedPayload confirms a breakpoint was removed.
+type BreakpointClearedPayload struct {
+	ID int `json:"id"`
+}
+
+// SteppedPayload is sent after any step command completes.
+type SteppedPayload struct {
+	Goroutine Goroutine `json:"goroutine"`
+	Location  Location  `json:"location"`
+	Frames    []Frame   `json:"frames"`
+}
+
+// ContinuedPayload confirms the process has been resumed.
+type ContinuedPayload struct{}
+
+// LocalsPayload carries the local variables for the current frame.
+type LocalsPayload struct {
+	FrameIndex int        `json:"frameIndex"`
+	Variables  []Variable `json:"variables"`
+}
+
+// FramesPayload carries the current call stack.
+type FramesPayload struct {
+	Frames []Frame `json:"frames"`
+}
+
+// GoroutinesPayload carries a snapshot of all goroutines.
+type GoroutinesPayload struct {
+	Goroutines []Goroutine `json:"goroutines"`
+}
+
+// ErrorPayload is sent when the debugger cannot execute a command.
+type ErrorPayload struct {
+	// Command is the kind of the command that caused the error.
+	Command CommandKind `json:"command,omitempty"`
+	Message string      `json:"message"`
+}
+
+// ─── Command payloads ────────────────────────────────────────────────────────
+
+// LaunchPayload asks the debugger to start a new process.
+type LaunchPayload struct {
+	Program string   `json:"program"` // path to compiled binary
+	Args    []string `json:"args,omitempty"`
+	Env     []string `json:"env,omitempty"` // additional env vars in KEY=VALUE form
+}
+
+// AttachPayload asks the debugger to attach to an existing process.
+type AttachPayload struct {
+	PID int `json:"pid"`
+}
+
+// SetBreakpointPayload asks the debugger to set a breakpoint.
+type SetBreakpointPayload struct {
+	File string `json:"file"`
+	Line int    `json:"line"`
+}
+
+// ClearBreakpointPayload asks the debugger to remove a breakpoint by ID.
+type ClearBreakpointPayload struct {
+	ID int `json:"id"`
+}
+
+// LocalsPayloadCmd asks the debugger for locals in a specific stack frame.
+type LocalsPayloadCmd struct {
+	FrameIndex int `json:"frameIndex"`
+}
