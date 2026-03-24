@@ -10,16 +10,11 @@ import "encoding/json"
 // version major component differs from their own.
 const Version = "1.0"
 
-// ─── Directions ──────────────────────────────────────────────────────────────
-//
-//   Event   server → all clients   something happened in the debugged process
-//   Command client → server        a client wants the debugger to do something
-
 // Event is the envelope for all server-to-client messages.
 type Event struct {
 	Version string          `json:"v"`
 	Kind    EventKind       `json:"kind"`
-	Seq     uint64          `json:"seq"` // used to detect missed packets, incremented each time a new event is sent
+	Seq     uint64          `json:"seq"`
 	Payload json.RawMessage `json:"payload"`
 }
 
@@ -30,40 +25,43 @@ type Command struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
-// ─── Event kinds ─────────────────────────────────────────────────────────────
+// ── Event kinds ───────────────────────────────────────────────────────────────
 
 type EventKind string
 
 const (
-	// Execution events — these cause the hub to suspend the debugger and wait
-	// for a client command before allowing the process to continue.
+	// Suspending events — hub blocks until a client sends a resuming command.
 	EventBreakpointHit EventKind = "BreakpointHit"
 	EventPanic         EventKind = "Panic"
 
-	// Informational events — broadcast to all clients; hub does not suspend.
+	// Informational events — broadcast immediately, hub does not block.
 	EventOutput        EventKind = "Output"
 	EventProcessExited EventKind = "ProcessExited"
 
-	// Debugger state confirmations — sent after a command is executed.
+	// Confirmation events — sent synchronously after a command succeeds.
 	EventBreakpointSet     EventKind = "BreakpointSet"
 	EventBreakpointCleared EventKind = "BreakpointCleared"
 	EventStepped           EventKind = "Stepped"
 	EventContinued         EventKind = "Continued"
 
-	// Inspection results — responses to locals/frames/goroutines queries.
+	// Inspection results — responses to Locals/Frames/Goroutines commands.
 	EventLocals     EventKind = "Locals"
 	EventFrames     EventKind = "Frames"
 	EventGoroutines EventKind = "Goroutines"
 
-	// Error — sent when a command fails; never suspends.
+	// Error — command failed; never suspends.
 	EventError EventKind = "Error"
 )
 
-// ─── Command kinds ────────────────────────────────────────────────────────────
+// ── Command kinds ─────────────────────────────────────────────────────────────
 
 type CommandKind string
 
 const (
+	// CmdNone is the zero value. Used internally when an error has no
+	// associated command (e.g. an OS-level error from the debugger backend).
+	CmdNone CommandKind = ""
+
 	// Process lifecycle.
 	CmdLaunch CommandKind = "Launch"
 	CmdAttach CommandKind = "Attach"
@@ -73,13 +71,13 @@ const (
 	CmdSetBreakpoint   CommandKind = "SetBreakpoint"
 	CmdClearBreakpoint CommandKind = "ClearBreakpoint"
 
-	// Execution control — only valid while the process is suspended.
+	// Execution control — only valid while suspended.
 	CmdContinue CommandKind = "Continue"
 	CmdStepOver CommandKind = "StepOver"
 	CmdStepInto CommandKind = "StepInto"
 	CmdStepOut  CommandKind = "StepOut"
 
-	// Inspection — only valid while the process is suspended.
+	// Inspection — only valid while suspended.
 	CmdLocals     CommandKind = "Locals"
 	CmdFrames     CommandKind = "Frames"
 	CmdGoroutines CommandKind = "Goroutines"

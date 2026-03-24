@@ -1,0 +1,66 @@
+Architecture deep-dive
+Here is the complete picture of the debugger package — every file, what it owns, and exactly how it connects to everything else.
+The two fundamental concepts
+Everything in this package exists to answer one question: what happened, and what should happen next? The tracee (the program being debugged) runs until it stops. Something caused the stop. The engine figures out what, emits an event so the hub and clients can react, and waits for a command that says what to do next. That feedback loop is the entire debugger.
+There are two completely separate concerns inside that loop: talking to the OS (ptrace/Mach/Win32), and making sense of what the OS says (DWARF, breakpoint tables, goroutine inspection). The architecture keeps them apart at every level.
+
+Layer 1 — The public contract (debugger.go)
+This is the only file the hub ever imports from. It defines the Debugger interface: Launch, Attach, Kill, SetBreakpoint, ClearBreakpoint, Continue, StepOver, StepInto, StepOut, Locals, StackFrames, Goroutines, Events().
+It also defines the sentinel errors (ErrNotSuspended, ErrAlreadyRunning, etc.) and the two constructors: New() which wires in the real OS backend, and NewWithBackend(b) which accepts a fake for tests.
+Nothing in this file is platform-specific. The hub can import it on any OS without getting ptrace or Mach in its dependency graph.
+
+Layer 2 — The OS contract (backend.go)
+backend.go defines what the OS layer must provide. The Backend interface has nine methods: ContinueProcess, SingleStep, StopProcess, ReadMemory, WriteMemory, GetRegisters, SetRegisters, Threads, Wait.
+This interface is deliberately primitive. It knows nothing about breakpoints, DWARF, goroutines, or protocol messages. It only knows how to make raw OS calls. This is the seam where the engine and the OS layer are decoupled — you can swap in a fake Backend for tests and the entire engine works without any OS calls at all.
+backend.go also defines StopEvent (what Wait returns: reason, TID, PC, exit code, signal number) and StopReason (the five ways a process can stop). And it defines pidSetter — the mechanism by which the engine tells a backend its tracee PID after launch or attach, since the backend is constructed before the PID is known.
+
+Layer 3 — The register type (registers.go, registers_windows.go)
+Registers is the translation layer between OS-specific register structs and the four fields the engine actually uses: PC, SP, BP, TLS. The file split exists because Windows needs a fifth field, EFlags, to support single-step via the Trap Flag bit. Non-Windows builds use registers.go (four fields); Windows builds use registers_windows.go (five fields). Both define the exact same struct name so all callers compile identically.
+
+Layer 4 — Architecture specifics (arch_amd64.go, arch_arm64.go)
+These files define three functions that differ between CPU architectures: archTrapInstruction(), archRewindPC(pc), and archGetRegisters/SetRegisters. Exactly one of these files compiles into any given build based on the GOARCH.
+arch_amd64.go (linux && amd64): The trap instruction is 0xCC (INT3, one byte). After the CPU executes INT3 it advances RIP by one before delivering SIGTRAP, so archRewindPC subtracts 1. Register access uses PTRACE_GETREGS/PTRACE_SETREGS which are standard Linux/amd64 ptrace calls exposed directly by Go's syscall package. The build tag is linux && amd64 — not just amd64 — because syscall.PtraceGetRegs doesn't exist on Darwin.
+arch_arm64.go (linux && arm64): The trap instruction is 0xD420 0000 (BRK #0, four bytes, little-endian). The CPU stops with PC pointing AT the BRK instruction, so archRewindPC is the identity function. Register access uses PTRACE_GETREGSET/PTRACE_SETREGSET with NT_PRSTATUS, because PTRACE_GETREGS simply doesn't exist on arm64 Linux. Since Go's syscall package doesn't expose those constants on arm64, they're called via raw Syscall6. The raw syscall wrappers (ptraceGetRegset, ptraceSetRegset) live in this file — they were previously a separate ptrace_regset_linux_arm64.go but that was a pointless split since they're only ever called from arch_arm64.go and both files had the same build tag.
+
+Layer 5 — Platform backends (backend_linux.go, backend_darwin.go, backend_windows.go and their arch companions)
+Each backend implements the nine Backend methods for one OS. The split between backend_{os}.go and {os}_{arch}.go is important: the OS file contains everything that is the same across architectures on that OS (process lifecycle, memory access, Wait loop), while the arch file contains what differs between amd64 and arm64 on that OS.
+backend_linux.go contains linuxBackend with its pid int and stepping bool. The stepping field is the correct solution to the single-step vs breakpoint disambiguation problem: Linux delivers both as SIGTRAP with TrapCause()==0, so the only way to know which is which is to remember whether you issued a PTRACE_SINGLESTEP request. The Wait() loop handles PTRACE_EVENT_CLONE (new thread spawned), PTRACE_EVENT_EXIT (process about to exit), and PTRACE_EVENT_EXEC (new program loaded) internally by resuming and continuing the loop — these events never surface to the engine. Only genuine breakpoints, single-steps, non-SIGTRAP signals, and process exits reach the engine.
+backend_darwin.go is structurally identical to the Linux backend. The differences: Darwin ptrace constants are different (PT_ATTACH=14, PT_CONTINUE=7, PT_STEP=9); Darwin doesn't have PTRACE_O_TRACECLONE so thread enumeration is limited to the main thread; Wait4 with -1 as the first argument doesn't work the same way on Darwin so we wait on the specific pid. The same stepping bool trick disambiguates single-steps from breakpoints.
+darwin_amd64.go contains darwinGetRegisters, darwinSetRegisters, darwinReadMemory, darwinWriteMemory for the Intel Mac. Register access uses Darwin's PT_GETREGS (12) and PT_SETREGS (13) ptrace requests which return a struct reg with verified byte offsets for RIP, RSP, RBP. Memory access uses PT_READ_D (2) and PT_WRITE_D (4) word-by-word. Sub-word writes use a read-modify-write cycle.
+darwin_arm64.go is honest stubs. Apple Silicon cannot be supported without cgo because Mach traps (thread_get_state, mach_vm_read_overwrite) are not callable via the POSIX syscall gate. The file explains exactly what cgo shim is needed and what signatures it must expose. Returning an error at runtime is far better than silently corrupting state.
+backend_windows.go contains windowsBackend which is structurally different from the Unix backends because Windows debugging is entirely event-driven. There is no direct equivalent of ptrace — instead you call CreateProcess with DEBUG_ONLY_THIS_PROCESS, then loop on WaitForDebugEvent. The backend stores a map of tid → windows.Handle because GetThreadContext/SetThreadContext need a thread handle, not a TID. Handles are acquired from CREATE_THREAD_DEBUG_EVENT and CREATE_PROCESS_DEBUG_EVENT events and released on EXIT_THREAD_DEBUG_EVENT. ContinueProcess uses b.lastTID (the TID of the most recent stop) rather than the pid because ContinueDebugEvent takes the specific thread that stopped.
+windows_amd64.go contains windowsGetRegisters/windowsSetRegisters using the AMD64 CONTEXT structure. The struct is 1232 bytes and must be 16-byte aligned. Register offsets are verified against winnt.h: RIP=248, RSP=152, RBP=160, EFlags=196. The file also provides the readU64/writeU64/readU32/writeU32 helpers used in those functions.
+
+Layer 6 — Breakpoint table (breakpoint.go)
+breakpointTable owns the complete set of installed breakpoints. It has two maps: byID for ClearBreakpoint lookups, and byAddr for the hot path in Wait — when a breakpoint is hit, the engine needs to find the entry by the PC value it received, not by ID.
+When set is called it reads archTrapInstruction() bytes, reads the current bytes from tracee memory (to save them), writes the trap instruction, and stores the entry. When clear is called it writes the saved bytes back. clearAll is called by Kill so the tracee's text segment is clean even if the session ends mid-debug.
+The errBreakpointExists sentinel is used by stepOut in the engine — when placing a temporary breakpoint at the return address, if one already exists there (another breakpoint was already set at that function's return site), that's fine, the existing one will fire and the engine will handle it normally.
+
+Layer 7 — Process lifecycle (process.go)
+process is a small struct embedded in engine that tracks pid, cmd (non-nil for launched, nil for attached), and live. Its three methods launch, attach, and kill delegate to the platform hooks startTracedProcess, attachToProcess, and killProcess — package-level functions defined in each backend_{os}.go. The engine owns a process value, calls its methods, then calls setPID(backend, pid) to notify the backend.
+The reason these hooks are package-level functions rather than Backend methods is that they run before the backend has a pid to work with. The backend is constructed in newBackend(), then the process is started/attached, then setPID bridges them. If you redesigned this you'd pass the pid into newBackend(), but that would require changing the Backend interface.
+
+Layer 8 — DWARF reader (dwarf.go)
+dwarfReader wraps *dwarf.Data and provides three operations:
+PCForFileLine(file, line) — resolves a file:line breakpoint request to a memory address. Walks every compile unit's line table looking for an is_stmt entry matching the requested location. Uses suffix-based path matching so "main.go" matches /home/user/myapp/main.go.
+locationForPC(pc) — maps a raw PC value back to a source location. Used when emitting BreakpointHit and Stepped events so clients see file:line rather than raw addresses. It checks cuContainsPC before scanning each compile unit's line table to avoid O(all_CUs × all_lines) lookups.
+LocalsForFrame(b, pc, frameBase) — reads local variable names, types, and values for the function containing pc. Evaluates DWARF location expressions: DW_OP_addr (absolute address) and DW_OP_fbreg (offset from BP register). Everything else is reported as <optimized out>. Values are currently read as raw 8-byte hex — a future pass would use the type info to format ints as decimal, strings as text, etc.
+The highPCValue helper handles the DWARF v2 vs v4 difference: DW_AT_high_pc is stored as an absolute uint64 address in v2 but as an int64 offset from low_pc in v4. Getting this wrong produces completely wrong function boundaries.
+
+Layer 9 — Engine (engine.go)
+The engine is the coordinator. It implements the Debugger interface and contains all the state that the hub interacts with. Its concurrency model is the most important thing to understand:
+One owner goroutine. All state mutations happen in e.loop(). Public methods don't touch state directly — they push a closure onto cmdCh and block until it executes in the loop. This gives serialisation with zero locks on the hot path.
+One wait goroutine per resume. Backend.Wait() can block for seconds. If it blocked inside the event loop, no commands could be processed while the tracee runs. Instead, each time the process is resumed (Continue, StepInto, etc.), a new waitLoop() goroutine is launched. It calls Wait() once, sends the result to stopCh, and exits. The event loop selects on both cmdCh (commands from callers) and stopCh (stop events from the OS).
+State machine. The engine is always in one of four states: stateNoProcess, stateRunning, stateSuspended, stateExited. Most commands check requireSuspended() first. The state transitions are:
+
+Launch/Attach → stateRunning (Launch) or stateSuspended (Attach)
+Continue/Step* → stateRunning
+StopBreakpoint/StopSingleStep → stateSuspended
+StopExited/StopKilled → stateExited
+
+handleStop is where the semantic interpretation happens. A StopBreakpoint from the backend contains a raw PC address. The engine looks it up in bps.atAddr(stop.PC) — if found, it emits EventBreakpointHit with the full payload (frames, goroutine, breakpoint info); if not found, it's a spurious trap (like the Windows loader's initial breakpoint) and the engine resumes silently.
+stepOut reads the return address from the top of the stack (RSP on amd64, SP on arm64), installs a temporary breakpoint there, and continues. When the breakpoint fires, the engine sees a StopBreakpoint for the <stepout-return> entry and emits EventBreakpointHit. The hub broadcasts this to clients as a normal breakpoint — clients don't need to know it was a step-out. A future improvement would remove the temporary breakpoint before emitting the event and emit EventStepped instead.
+
+How it connects to the rest of the system
+The hub holds one Debugger interface value. It calls Launch or Attach once, then sits in a loop reading Events() and writing commands back. The event channel is the only async communication path — everything else is synchronous. This is intentional: it means the hub can be tested with a fake debugger that pushes events onto a channel and records what methods were called, with no OS involvement.
+The protocol package is imported by the engine for event payloads (protocol.BreakpointHitPayload, etc.) but the engine never imports the hub. The dependency arrow is strictly: hub → debugger → protocol, never the other way.

@@ -1,0 +1,10 @@
+{
+    "gopls": {
+        "build.buildFlags": [
+            "-tags=cgo"
+        ],
+        "build.env": {
+            "GOFLAGS": "-tags=cgo"
+        }
+    }
+}
