@@ -33,6 +33,7 @@ import (
 var suspendingEvents = map[protocol.EventKind]bool{
 	protocol.EventBreakpointHit: true,
 	protocol.EventPanic:         true,
+	protocol.EventStepped:       true,
 }
 
 // resumingCommands are commands that unblock a suspended hub.
@@ -248,7 +249,7 @@ func (h *Hub) handleEvent(ctx context.Context, evt protocol.Event) {
 
 	// Track state transitions derived from debugger events.
 	switch evt.Kind {
-	case protocol.EventBreakpointHit, protocol.EventPanic:
+	case protocol.EventBreakpointHit, protocol.EventPanic, protocol.EventStepped:
 		h.transitionState(protocol.StateSuspended)
 	case protocol.EventProcessExited:
 		h.transitionState(protocol.StateExited)

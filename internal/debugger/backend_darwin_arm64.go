@@ -230,8 +230,8 @@ func (b *darwinBackend) Threads() ([]int, error) {
 	}
 	defer C.vm_deallocate(
 		C.mach_task_self_,
-		C.mach_vm_address_t(uintptr(unsafe.Pointer(threads))),
-		C.mach_vm_size_t(uintptr(count)*unsafe.Sizeof(C.mach_port_t(0))),
+		C.vm_address_t(uintptr(unsafe.Pointer(threads))),
+		C.vm_size_t(uintptr(count)*unsafe.Sizeof(C.mach_port_t(0))),
 	)
 	ports := unsafe.Slice((*C.mach_port_t)(unsafe.Pointer(threads)), int(count))
 	tids := make([]int, len(ports))

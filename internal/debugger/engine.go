@@ -98,8 +98,12 @@ func (e *engine) Launch(binaryPath string, args []string, env []string) error {
 		}
 		setPID(e.backend, e.proc.pid)
 		e.loadDWARF(binaryPath)
-		e.setState(stateRunning)
-		go e.waitLoop()
+		// startTracedProcess already consumed the initial SIGTRAP — the
+		// process is stopped at its first instruction. Set suspended (not
+		// running) and emit a stopped event. No waitLoop: the process is
+		// not running, so there is nothing for Wait4 to report.
+		e.setState(stateSuspended)
+		e.emitStoppedAtCurrentPC()
 		return nil
 	})
 }
@@ -113,8 +117,10 @@ func (e *engine) Attach(pid int, binaryPath string) error {
 		if binaryPath != "" {
 			e.loadDWARF(binaryPath)
 		}
+		// attachToProcess already consumed the post-attach stop — the
+		// process is stopped. No waitLoop needed (same rationale as Launch).
 		e.setState(stateSuspended)
-		go e.waitLoop()
+		e.emitStoppedAtCurrentPC()
 		return nil
 	})
 }
@@ -538,6 +544,20 @@ func (e *engine) emitBreakpointHit(bp *breakpointEntry, stop StopEvent) {
 		Goroutine:  g,
 		Frames:     frames,
 	})
+}
+
+// emitStoppedAtCurrentPC reads the current PC and emits an EventStepped so
+// clients know where the process is stopped (used after Launch/Attach).
+func (e *engine) emitStoppedAtCurrentPC() {
+	threads, err := e.backend.Threads()
+	if err != nil || len(threads) == 0 {
+		return
+	}
+	regs, err := e.backend.GetRegisters(threads[0])
+	if err != nil {
+		return
+	}
+	e.emitStepped(StopEvent{PC: regs.PC})
 }
 
 func (e *engine) emitStepped(stop StopEvent) {
