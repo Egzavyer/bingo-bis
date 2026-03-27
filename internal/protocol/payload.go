@@ -3,9 +3,6 @@ package protocol
 // This file contains the typed payload struct for every EventKind and
 // CommandKind. The hub and debugger always work with these concrete types;
 // json.RawMessage only appears at the WebSocket boundary.
-//
-// Naming convention:
-//   <Kind>Payload  — for both events and commands, e.g. BreakpointHitPayload.
 
 // ─── Shared sub-types ────────────────────────────────────────────────────────
 
@@ -33,10 +30,9 @@ type Variable struct {
 
 // Frame is a single entry in the call stack.
 type Frame struct {
-	Index    int      `json:"index"`
-	Location Location `json:"location"`
-	// Locals are only populated when the client requests frame-level locals.
-	Locals []Variable `json:"locals,omitempty"`
+	Index    int        `json:"index"`
+	Location Location   `json:"location"`
+	Locals   []Variable `json:"locals,omitempty"`
 }
 
 // Goroutine is a snapshot of a running goroutine.
@@ -74,7 +70,7 @@ type OutputPayload struct {
 // ProcessExitedPayload is sent when the target process exits.
 type ProcessExitedPayload struct {
 	ExitCode int    `json:"exitCode"`
-	Reason   string `json:"reason,omitempty"` // e.g. "killed", "exited"
+	Reason   string `json:"reason,omitempty"` // "killed" | "exited"
 }
 
 // BreakpointSetPayload confirms a breakpoint was set.
@@ -97,7 +93,7 @@ type SteppedPayload struct {
 // ContinuedPayload confirms the process has been resumed.
 type ContinuedPayload struct{}
 
-// LocalsPayload carries the local variables for the current frame.
+// LocalsPayload carries the local variables for the requested frame.
 type LocalsPayload struct {
 	FrameIndex int        `json:"frameIndex"`
 	Variables  []Variable `json:"variables"`
@@ -113,9 +109,9 @@ type GoroutinesPayload struct {
 	Goroutines []Goroutine `json:"goroutines"`
 }
 
-// ErrorPayload is sent when the debugger cannot execute a command.
+// ErrorPayload is sent when a command fails.
+// Command is omitempty so that CmdNone (empty string) is omitted from the wire.
 type ErrorPayload struct {
-	// Command is the kind of the command that caused the error.
 	Command CommandKind `json:"command,omitempty"`
 	Message string      `json:"message"`
 }
@@ -124,17 +120,24 @@ type ErrorPayload struct {
 
 // LaunchPayload asks the debugger to start a new process.
 type LaunchPayload struct {
-	Program string   `json:"program"` // path to compiled binary
+	// Program is the path to the compiled Go binary on the server's filesystem.
+	Program string   `json:"program"`
 	Args    []string `json:"args,omitempty"`
-	Env     []string `json:"env,omitempty"` // additional env vars in KEY=VALUE form
+	// Env contains additional environment variables in KEY=VALUE form.
+	// They are appended to the server process's environment.
+	Env []string `json:"env,omitempty"`
 }
 
-// AttachPayload asks the debugger to attach to an existing process.
+// AttachPayload asks the debugger to attach to an already-running process.
 type AttachPayload struct {
 	PID int `json:"pid"`
+	// BinaryPath is the path to the binary the process was started from.
+	// Optional but strongly recommended: without it, SetBreakpoint, Locals,
+	// and StackFrames will not work (no DWARF info available).
+	BinaryPath string `json:"binaryPath,omitempty"`
 }
 
-// SetBreakpointPayload asks the debugger to set a breakpoint.
+// SetBreakpointPayload asks the debugger to install a breakpoint.
 type SetBreakpointPayload struct {
 	File string `json:"file"`
 	Line int    `json:"line"`
@@ -145,7 +148,8 @@ type ClearBreakpointPayload struct {
 	ID int `json:"id"`
 }
 
-// LocalsPayloadCmd asks the debugger for locals in a specific stack frame.
+// LocalsPayloadCmd asks for locals in a specific stack frame.
+// FrameIndex 0 is the innermost (currently executing) frame.
 type LocalsPayloadCmd struct {
 	FrameIndex int `json:"frameIndex"`
 }

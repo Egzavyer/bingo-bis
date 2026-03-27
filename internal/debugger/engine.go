@@ -91,9 +91,9 @@ func newEngine(b Backend) *engine {
 
 func (e *engine) Events() <-chan protocol.Event { return e.events }
 
-func (e *engine) Launch(binaryPath string, args []string) error {
+func (e *engine) Launch(binaryPath string, args []string, env []string) error {
 	return e.dispatch(func() error {
-		if err := e.proc.launch(binaryPath, args, nil); err != nil {
+		if err := e.proc.launch(binaryPath, args, env); err != nil {
 			return err
 		}
 		setPID(e.backend, e.proc.pid)

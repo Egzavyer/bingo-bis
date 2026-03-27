@@ -41,7 +41,9 @@ type Debugger interface {
 	// Launch starts binaryPath under the debugger. The process is stopped at
 	// its first instruction; no code runs until Continue or a step is called.
 	// DWARF debug info is loaded from binaryPath automatically.
-	Launch(binaryPath string, args []string) error
+	// env contains additional environment variables in KEY=VALUE form;
+	// pass nil to inherit the server's environment unchanged.
+	Launch(binaryPath string, args []string, env []string) error
 
 	// Attach connects to an already-running process by PID.
 	// The process is stopped immediately on attach.
