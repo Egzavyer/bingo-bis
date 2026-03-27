@@ -44,6 +44,32 @@ type Goroutine struct {
 	WaitReason string   `json:"waitReason,omitempty"`
 }
 
+// ─── Session state ───────────────────────────────────────────────────────────
+
+// SessionState represents the current phase of a debug session's lifecycle.
+// The server drives all state transitions and broadcasts them to every client
+// so that UIs always reflect the authoritative state.
+type SessionState string
+
+const (
+	// StateIdle means the session exists but no process has been launched yet.
+	// Valid commands: Launch, Attach.
+	StateIdle SessionState = "idle"
+
+	// StateRunning means the debuggee is executing.
+	// Valid commands: SetBreakpoint, ClearBreakpoint, Kill.
+	StateRunning SessionState = "running"
+
+	// StateSuspended means the debuggee is stopped (breakpoint, panic, etc.).
+	// Valid commands: Continue, Step*, Locals, Frames, Goroutines,
+	// SetBreakpoint, ClearBreakpoint, Kill.
+	StateSuspended SessionState = "suspended"
+
+	// StateExited means the debuggee has terminated. The session remains open
+	// so clients can re-launch. Transitions back to StateIdle automatically.
+	StateExited SessionState = "exited"
+)
+
 // ─── Event payloads ──────────────────────────────────────────────────────────
 
 // BreakpointHitPayload is sent when a breakpoint is hit.
@@ -107,6 +133,14 @@ type FramesPayload struct {
 // GoroutinesPayload carries a snapshot of all goroutines.
 type GoroutinesPayload struct {
 	Goroutines []Goroutine `json:"goroutines"`
+}
+
+// SessionStatePayload carries the authoritative session state.
+// Broadcast on every state transition and sent to clients on connect.
+type SessionStatePayload struct {
+	SessionID string       `json:"sessionID"`
+	State     SessionState `json:"state"`
+	Clients   int          `json:"clients"` // number of connected clients
 }
 
 // ErrorPayload is sent when a command fails.

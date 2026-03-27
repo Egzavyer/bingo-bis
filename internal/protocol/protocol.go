@@ -49,6 +49,10 @@ const (
 	EventFrames     EventKind = "Frames"
 	EventGoroutines EventKind = "Goroutines"
 
+	// Session state — broadcast to all clients on state transitions and to
+	// newly joined clients so they are immediately synced.
+	EventSessionState EventKind = "SessionState"
+
 	// Error — command failed; never suspends.
 	EventError EventKind = "Error"
 )
