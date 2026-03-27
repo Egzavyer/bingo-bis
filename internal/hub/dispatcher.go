@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"bingo-bis/internal/debugger"
-	"bingo-bis/internal/protocol"
+	"bingo-bis/pkg/protocol"
 )
 
 // dispatchResult carries the optional confirmation event produced by a command

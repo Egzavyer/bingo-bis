@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"bingo-bis/internal/protocol"
+	"bingo-bis/pkg/protocol"
 )
 
 const (

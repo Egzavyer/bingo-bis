@@ -11,7 +11,7 @@ import (
 	"runtime"
 	"strings"
 
-	"bingo-bis/internal/protocol"
+	"bingo-bis/pkg/protocol"
 )
 
 // dwarfReader wraps *dwarf.Data and provides the three operations the engine

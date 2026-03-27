@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"bingo-bis/internal/protocol"
+	"bingo-bis/pkg/protocol"
 )
 
 func TestProtocol(t *testing.T) {

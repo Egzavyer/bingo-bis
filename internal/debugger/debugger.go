@@ -12,7 +12,7 @@ package debugger
 import (
 	"errors"
 
-	"bingo-bis/internal/protocol"
+	"bingo-bis/pkg/protocol"
 )
 
 // ── Sentinel errors ───────────────────────────────────────────────────────────

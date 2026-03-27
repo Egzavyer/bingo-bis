@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"bingo-bis/internal/protocol"
+	"bingo-bis/pkg/protocol"
 )
 
 // errBreakpointExists is the sentinel returned by breakpointTable.set when a

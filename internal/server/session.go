@@ -8,7 +8,7 @@ import (
 
 	"bingo-bis/internal/debugger"
 	"bingo-bis/internal/hub"
-	"bingo-bis/internal/protocol"
+	"bingo-bis/pkg/protocol"
 
 	"github.com/google/uuid"
 )

@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"bingo-bis/internal/debugger"
-	"bingo-bis/internal/protocol"
+	"bingo-bis/pkg/protocol"
 )
 
 // suspendingEvents are event kinds that cause the hub to pause and wait for

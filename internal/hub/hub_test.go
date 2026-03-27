@@ -12,7 +12,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"bingo-bis/internal/hub"
-	"bingo-bis/internal/protocol"
+	"bingo-bis/pkg/protocol"
 )
 
 func TestHub(t *testing.T) {

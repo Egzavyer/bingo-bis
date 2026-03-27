@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"bingo-bis/internal/protocol"
+	"bingo-bis/pkg/protocol"
 )
 
 const (

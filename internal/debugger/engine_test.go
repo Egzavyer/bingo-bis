@@ -10,7 +10,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"bingo-bis/internal/debugger"
-	"bingo-bis/internal/protocol"
+	"bingo-bis/pkg/protocol"
 )
 
 func TestDebugger(t *testing.T) {
