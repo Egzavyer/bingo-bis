@@ -39,6 +39,10 @@ run-target:
 # Build and run the target by itself
 go-target: build-target run-target 
 
+# Build and run the interactive CLI client
+cli *ARGS:
+	go run ./cmd/cli {{ARGS}}
+
 # Run unit tests on the PKG (defaults to ./...)
 test PKG="./...":
 	go test -v {{PKG}}
