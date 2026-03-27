@@ -11,7 +11,7 @@ system-info:
 # Build the BinGo binary. Takes positional arguments for the target OS and architecture (Must be valid `go build` targets).
 build OS="linux" ARCH="amd64":
 	mkdir -p ./build/bingo
-	{{ if OS == "darwin" { "env CGO_ENABLED=1 GOOS=" + OS + " GOARCH=" + ARCH + " go build -o ./build/bingo/bingo_" + OS + "_" + ARCH + " ./cmd/bingo" } else { "env GOOS=" + OS + " GOARCH=" + ARCH + " go build -o ./build/bingo/bingo_" + OS + "_" + ARCH + (if OS == "windows" { ".exe" } else { "" }) + " ./cmd/bingo" } }}
+	{{ if OS == "darwin" { "env CGO_ENABLED=1 GOOS=" + OS + " GOARCH=" + ARCH + " go build -tags bingonative -o ./build/bingo/bingo_" + OS + "_" + ARCH + " ./cmd/bingo" } else { "env GOOS=" + OS + " GOARCH=" + ARCH + " go build -o ./build/bingo/bingo_" + OS + "_" + ARCH + (if OS == "windows" { ".exe" } else { "" }) + " ./cmd/bingo" } }}
 
 # Usage: just run 				->	runs ./build/bingo/bingo_linux_amd64 (Default)
 #		 just run windows 		->	runs ./build/bingo/bingo_windows_amd64.exe (Windows specified, default architecture)
@@ -38,6 +38,10 @@ run-target:
 
 # Build and run the target by itself
 go-target: build-target run-target 
+
+# Run the bingo debug server (native platform, auto-detected)
+server *ARGS:
+	go run -tags bingonative ./cmd/bingo {{ARGS}}
 
 # Build and run the interactive CLI client
 cli *ARGS:
